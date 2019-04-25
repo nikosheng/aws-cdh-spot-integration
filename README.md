@@ -18,15 +18,15 @@ In this github project, I have tested version 5.11.2 and you might try other ver
 
 ### Getting Started
 ---
-- **Install Go environment**  
+1. **Install Go environment**  
 Packer depends on the Go compile environment, you have to install Go first to finish the packer installation.
 Please follow the [Go Installation](https://golang.org/doc/install) instructions 
 
-- **Install Packer Tool**   
+2. **Install Packer Tool**   
 After finishing the installation of Go, you may start building ***Packer***.
 Please follow the [Packer Installation](https://www.packer.io/intro/getting-started/install.html) instructions.
 
-- **Create Cloudera Manager AMI**  
+3. **Create Cloudera Manager AMI**  
 Cloudera Manager is an end-to-end application for managing CDH clusters.
 
 We will use ***Packer*** to create the ami and upload to the ami repository in your AWS account.
@@ -72,12 +72,39 @@ The Cloudera Manager AMI is created based on the CentOS 7 AMI(**ami-02eac2c0129f
     ]
   }
 ```
+When filling in the necessary fields, run the packer to build the ami
+```
+$ export AK=<Access Key>
+$ export SK=<Secret Key>
+$ packer build -var "aws_access_key=$AK" -var "aws_secret_key=$SK" cm-packer.json
+```
 
 Once finished, you need to record the newly created ami id displayed in the console
 ```
 ==> Builds finished. The artifacts of successful builds are:
 --> amazon-ebs: AMIs were created:
-us-east-1: ami-0596cea25c320ac7d
+us-east-1: ami-xxx
+```
+
+4. **Create Cloudera DataNode AMI**  
+Similar steps need to be executed as creating CM ami, you need to setup the neccessary fields such as region and base ami id in **node-packer.json**.
+
+When filling in the necessary fields, run the packer to build the ami
+```
+$ export AK=<Access Key>
+$ export SK=<Secret Key>
+$ packer build -var "aws_access_key=$AK" -var "aws_secret_key=$SK" node-packer.json
+```
+Once finished, you need to record the newly created ami id displayed in the console
+```
+==> Builds finished. The artifacts of successful builds are:
+--> amazon-ebs: AMIs were created:
+us-east-1: ami-xxx
+```
+
+After finishing the ami creation, you could check the ami in your account to verify whether the ami has uploaded to the ami repo
+```
+$ aws ec2 describe-images --image-ids <ami id>
 ```
 
 - **Running context creation script(cdh-context.yml)**   
