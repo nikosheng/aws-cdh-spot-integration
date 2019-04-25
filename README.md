@@ -11,10 +11,11 @@ Building up a CDH cluster in AWS by using Spot Instances
 
 ### Getting Started
 ---
-- Install Packer Tool  
+- Install Go environment
 Packer depends on the Go compile environment, you have to install Go first to finish the packer installation.
 Please follow the [Go Installation](https://golang.org/doc/install) instructions 
 
+- Install Packer Tool 
 After finishing the installation of Go, you may start building ***Packer***
 Please follow the [Packer Installation](https://www.packer.io/intro/getting-started/install.html) instructions
 
