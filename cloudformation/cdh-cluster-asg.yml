@@ -1,0 +1,257 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation template to launch CDH cluster'
+Parameters:
+  CMInstanceType:
+    Description: Enter a valid instance type for your selected region.
+    Type: String
+    Default: 'm4.xlarge'
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for Cloudera Cluster.
+  CMSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet for Cloudera Manager.
+  SSHKeyName:
+    Description: The EC2 Key Pair to allow SSH access to these instances.
+    Type: AWS::EC2::KeyPair::KeyName
+  CMSecurityGroup:
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/cm/sg'
+  CMInstanceProfile:
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/cm/inst-prof'
+  DBEndpoint :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/endpoint'
+  DBUser :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/admin-user'
+  DBAdminPassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/admin-pwd'
+  DBSCMPassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/scm-pwd'
+  AMonPassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/amon-pwd'
+  DBHivePassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/hive-pwd'
+  DBHuePassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/hue-pwd'
+  DBOoziePassword :
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/db/oozie-pwd'
+  NodeInstanceProfile:
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/node/inst-prof'
+  NodeSecurityGroup:
+    Description: 'Security group for fleet instances.'
+    Type : 'AWS::SSM::Parameter::Value<String>'
+    Default: '/cdh/node/sg'
+  CDHNodesCapacity:
+    Description: 'Target number of spot instances'
+    Type: Number
+    Default: 3
+    MinValue: 3
+  FleetSubnets:
+    Description: The subnets where ec2 fleet can be created.
+    Type: List<AWS::EC2::Subnet::Id>
+  CMVolumeSize:
+    Description: 'Volume size of CM instance'
+    Type: Number
+    Default: 50
+    MinValue: 20
+  CDHNodeVolumeSize:
+    Description: 'Volume size of each CDH node'
+    Type: Number
+    Default: 50
+    MinValue: 20
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "CM Instance Parameters"
+        Parameters:
+          - VpcId
+          - CMSubnetId
+          - CMInstanceType
+          - CMVolumeSize
+          - SSHKeyName
+      - Label:
+          default: "CDH Node Parameters"
+        Parameters:
+          - FleetSubnets
+          - CDHNodesCapacity
+          - CDHNodeVolumeSize
+Mappings:
+  AWSRegionToCDHAMI:
+    us-east-1:
+      CMAMIID: ami-0b609d396ced63179
+      CDHNODEAMIID: ami-0596cea25c320ac7d
+Resources:
+### Launch Cloudera CM node, setup external DB, install Cloudera Management Service, wait for CDH nodes and create new CDH cluster  ###
+  CMInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      ImageId: !FindInMap [AWSRegionToCDHAMI, !Ref 'AWS::Region', CMAMIID]
+      InstanceType: !Ref CMInstanceType
+      IamInstanceProfile: !Ref CMInstanceProfile
+      KeyName: !Ref 'SSHKeyName'
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: 'true'
+          DeviceIndex: 0
+          GroupSet: [!Ref 'CMSecurityGroup']
+          SubnetId: !Ref CMSubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: !Ref CMVolumeSize
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+          ### stop cloudera server and agent at first ###
+          systemctl stop cloudera-scm-agent
+          systemctl stop cloudera-scm-server
+
+          ### Setup DB ###
+          echo "Setup DB ... "
+          mysql -h${DBEndpoint} -u${DBUser} -p${DBAdminPassword} <<'EOF'
+          DROP DATABASE IF EXISTS amon;
+          CREATE DATABASE amon DEFAULT CHARACTER SET utf8;
+          CREATE DATABASE IF NOT EXISTS metastore DEFAULT CHARACTER SET utf8;
+          CREATE DATABASE IF NOT EXISTS hue DEFAULT CHARACTER SET utf8;
+          DROP DATABASE IF EXISTS oozie;
+          CREATE DATABASE oozie DEFAULT CHARACTER SET utf8;
+          GRANT ALL ON metastore.* TO 'hive'@'%' IDENTIFIED BY '${DBHivePassword}';
+          GRANT ALL ON hue.* TO 'hue'@'%' IDENTIFIED BY '${DBHuePassword}';
+          GRANT ALL ON oozie.* TO 'oozie'@'%' IDENTIFIED BY '${DBOoziePassword}';
+          GRANT ALL ON amon.* TO 'amon'@'%' IDENTIFIED BY '${AMonPassword}';
+          DROP DATABASE IF EXISTS cm;
+          GRANT ALL ON cm.* TO 'scm'@'%' IDENTIFIED BY '${DBSCMPassword}';
+          DROP USER scm;
+          FLUSH PRIVILEGES;
+          EOF
+          /usr/share/cmf/schema/scm_prepare_database.sh mysql cm -h${DBEndpoint} -u${DBUser} -p${DBAdminPassword} --scm-host % scm ${DBSCMPassword}
+
+          ### start cloudera server and agent ###
+          echo "Start cloudera server and agent ... "
+          systemctl enable cloudera-scm-server
+          systemctl enable cloudera-scm-agent
+          systemctl start cloudera-scm-server
+          systemctl start cloudera-scm-agent
+
+          ### wait for cloudera-scm-server ready ###
+          echo -n "Waiting for cloudera-scm-server ready "
+          while ! curl --output /dev/null --silent --head --fail http://localhost:7180;
+              do sleep 5;
+          done;
+          sleep 10
+          echo " done"
+
+          ### setup Cloudera Management Service ###
+          echo "Setup Cloudera Management Service ... "
+          CMHost=`curl -s http://169.254.169.254/latest/meta-data/local-hostname`
+          curl -s -o /tmp/cm-mgmt-svc-setup.py https://s3.amazonaws.com/aws-nikofeng-sample-bucket/cdh/scripts/cm-mgmt-svc-setup.py
+          python /tmp/cm-mgmt-svc-setup.py -c ${!CMHost} -p 7180 -a admin -m ${DBEndpoint} -w ${AMonPassword}
+
+          ### wait for CDH host ready ###
+          echo -n "Waiting for CDH hosts ready "
+          while [ `curl -s http://admin:admin@localhost:7180/api/v12/hosts?view=full | jq -r '[.items[] | select(.healthSummary == "GOOD")] | length'` -lt ${CDHNodesCapacity} ];
+              do sleep 5;
+          done
+          sleep 10
+          echo " done"
+
+          ### get host name of each spot instance ###
+          echo "Get host name of each spot instance ... "
+          SpotInstances=(`curl -s http://admin:admin@localhost:7180/api/v12/hosts?view=full | jq -r '.items[] | select(.roleRefs | length == 0) | .hostname'`)
+
+          ### create cluster ###
+          echo "Create cluster ... "
+          curl -s -o /tmp/cluster_template.json https://s3.amazonaws.com/aws-nikofeng-sample-bucket/cdh/scripts/cdh-cluster-template.json
+          jq -n \
+            --arg host_cm ${!CMHost} \
+            --arg host_name_node1 ${!SpotInstances[0]} \
+            --arg host_name_node2 ${!SpotInstances[1]} \
+            --arg host_data_nodes "${!SpotInstances[2]},${!SpotInstances[3]}" \
+            --arg host_database ${DBEndpoint} \
+            --arg hive_db_password ${DBHivePassword} \
+            --arg hue_db_password ${DBHuePassword} \
+            --arg oozie_db_password ${DBOoziePassword} \
+            -f /tmp/cluster_template.json > /tmp/cluster_template_inst.json
+          curl -s -X POST -H "Content-Type: application/json" -d @/tmp/cluster_template_inst.json http://admin:admin@localhost:7180/api/v12/cm/importClusterTemplate
+
+          echo "DONE!"
+### Launch EC2 fleet as the CDH nodes, join to cluster by setting CM host in agent configuration ###
+  CDHLaunchTemplate:
+    Type: 'AWS::EC2::LaunchTemplate'
+    Properties:
+      LaunchTemplateName: 'CDH-EC2-Fleet'
+      LaunchTemplateData:
+        IamInstanceProfile:
+          Name: !Ref NodeInstanceProfile
+        ImageId: !FindInMap [AWSRegionToCDHAMI, !Ref 'AWS::Region', CDHNODEAMIID]
+        KeyName: !Ref SSHKeyName
+        SecurityGroupIds: [!Ref NodeSecurityGroup]
+        BlockDeviceMappings:
+        - DeviceName: '/dev/sda1'
+          Ebs:
+            DeleteOnTermination: true
+            VolumeType: 'gp2'
+            VolumeSize: !Ref CDHNodeVolumeSize
+        TagSpecifications:
+        - ResourceType: instance
+          Tags:
+          - Key: Name
+            Value: 'CDH-Node'
+        UserData:
+            Fn::Base64: !Sub 
+            - |
+              #!/bin/bash -xe
+              exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+              systemctl stop cloudera-scm-agent
+              rm -f /var/lib/cloudera-scm-agent/uuid
+              rm -f /var/lib/cloudera-scm-agent/cm_guid
+              sed -i "s/^server_host=.*/server_host=${CMHostName}/g" /etc/cloudera-scm-agent/config.ini
+
+              #wait for CM host ready
+              while ! curl --output /dev/null --silent --head http://${CMHostName}:7182;
+                  do sleep 5;
+              done;
+              sleep 10
+
+              systemctl enable cloudera-scm-agent
+              systemctl start cloudera-scm-agent
+            - {
+              CMHostName: !GetAtt CMInstance.PrivateDnsName
+              }
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref CDHLaunchTemplate
+            Version: !GetAtt CDHLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: m4.xlarge
+            - InstanceType: r4.xlarge
+        InstancesDistribution:
+          OnDemandPercentageAboveBaseCapacity: 0
+      MinSize: 3
+      MaxSize: 10
+      DesiredCapacity: !Ref 'CDHNodesCapacity'
+      VPCZoneIdentifier: !Ref FleetSubnets
+Outputs:
+  PublicIP:
+    Description: Public IP address of the newly created EC2 instance
+    Value: !GetAtt CMInstance.PublicIp

@@ -1,0 +1,295 @@
+{
+  "cdhVersion": "5.11.2",
+  "displayName": "Cluster 1",
+  "cmVersion": "5.11.2",
+  "repositories": [],
+  "products": [
+    {
+      "version": "5.11.2-1.cdh5.11.2.p0.4",
+      "product": "CDH"
+    }
+  ],
+  "services": [
+    {
+      "refName": "hive",
+      "serviceType": "HIVE",
+      "serviceConfigs": [
+        {
+          "name": "hive_metastore_database_host",
+          "variable": "var_db_host"
+        },
+        {
+          "name": "hive_metastore_database_password",
+          "variable": "var_hive_db_password"
+        }
+      ],
+      "roleConfigGroups": [
+        {
+          "refName": "hive-HIVEMETASTORE-BASE",
+          "roleType": "HIVEMETASTORE",
+          "base": true
+        },
+        {
+          "refName": "hive-HIVESERVER2-BASE",
+          "roleType": "HIVESERVER2",
+          "base": true
+        },
+        {
+          "refName": "hive-GATEWAY-BASE",
+          "roleType": "GATEWAY",
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "zookeeper",
+      "serviceType": "ZOOKEEPER",
+      "roleConfigGroups": [
+        {
+          "refName": "zookeeper-SERVER-BASE",
+          "roleType": "SERVER",
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "hue",
+      "serviceType": "HUE",
+      "serviceConfigs": [
+        {
+          "name": "database_host",
+          "variable": "var_db_host"
+        },
+        {
+          "name": "database_type",
+          "value": "mysql"
+        },
+        {
+          "name": "database_password",
+          "variable": "var_hue_db_password"
+        }
+      ],
+      "roleConfigGroups": [
+        {
+          "refName": "hue-HUE_SERVER-BASE",
+          "roleType": "HUE_SERVER",
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "oozie",
+      "serviceType": "OOZIE",
+      "roleConfigGroups": [
+        {
+          "refName": "oozie-OOZIE_SERVER-BASE",
+          "roleType": "OOZIE_SERVER",
+          "configs": [
+            {
+              "name": "oozie_database_password",
+              "variable": "var_oozie_db_password"
+            },
+            {
+              "name": "oozie_database_type",
+              "value": "mysql"
+            },
+            {
+              "name": "oozie_database_user",
+              "value": "oozie"
+            },
+            {
+              "name": "oozie_database_host",
+              "variable": "var_db_host"
+            }
+          ],
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "impala",
+      "serviceType": "IMPALA",
+      "roleConfigGroups": [
+        {
+          "refName": "impala-IMPALAD-BASE",
+          "roleType": "IMPALAD",
+          "configs": [
+            {
+              "name": "impalad_memory_limit",
+              "value": "1073741824"
+            }
+          ],
+          "base": true
+        },
+        {
+          "refName": "impala-STATESTORE-BASE",
+          "roleType": "STATESTORE",
+          "base": true
+        },
+        {
+          "refName": "impala-CATALOGSERVER-BASE",
+          "roleType": "CATALOGSERVER",
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "yarn",
+      "serviceType": "YARN",
+      "serviceConfigs": [
+        {
+          "name": "yarn_core_site_safety_valve",
+          "value": "<property><name>fs.s3a.endpoint</name><value>s3.amazonaws.com</value></property>"
+        }
+      ],
+      "roleConfigGroups": [
+        {
+          "refName": "yarn-RESOURCEMANAGER-BASE",
+          "roleType": "RESOURCEMANAGER",
+          "base": true
+        },
+        {
+          "refName": "yarn-JOBHISTORY-BASE",
+          "roleType": "JOBHISTORY",
+          "base": true
+        },
+        {
+          "refName": "yarn-NODEMANAGER-BASE",
+          "roleType": "NODEMANAGER",
+          "base": true
+        }
+      ]
+    },
+    {
+      "refName": "hdfs",
+      "serviceType": "HDFS",
+      "serviceConfigs": [
+        {
+          "name": "core_site_safety_valve",
+          "value": "<property><name>fs.s3a.endpoint</name><value>s3.amazonaws.com</value></property>"
+        },
+        {
+          "name": "dfs_replication",
+          "value": "2"
+        }
+      ],
+      "roleConfigGroups": [
+        {
+          "refName": "hdfs-DATANODE-BASE",
+          "roleType": "DATANODE",
+          "base": true
+        },
+        {
+          "refName": "hdfs-NAMENODE-BASE",
+          "roleType": "NAMENODE",
+          "base": true
+        },
+        {
+          "refName": "hdfs-BALANCER-BASE",
+          "roleType": "BALANCER",
+          "base": true
+        },
+        {
+          "refName": "hdfs-SECONDARYNAMENODE-BASE",
+          "roleType": "SECONDARYNAMENODE",
+          "base": true
+        },
+        {
+          "refName": "hdfs-GATEWAY-BASE",
+          "roleType": "GATEWAY",
+          "base": true
+        }
+      ]
+    }
+  ],
+  "hostTemplates": [
+    {
+      "refName": "HostTemplate-CM",
+      "cardinality": 1,
+      "roleConfigGroupsRefNames": [
+        "hive-GATEWAY-BASE",
+        "oozie-OOZIE_SERVER-BASE",
+        "zookeeper-SERVER-BASE",
+        "hdfs-GATEWAY-BASE"
+      ]
+    },
+    {
+      "refName": "HostTemplate-NameNode1",
+      "cardinality": 1,
+      "roleConfigGroupsRefNames": [
+        "hdfs-NAMENODE-BASE",
+        "hdfs-SECONDARYNAMENODE-BASE",
+        "hive-GATEWAY-BASE",
+        "hive-HIVEMETASTORE-BASE",
+        "hive-HIVESERVER2-BASE",
+        "hue-HUE_SERVER-BASE",
+        "impala-CATALOGSERVER-BASE",
+        "impala-STATESTORE-BASE",
+        "yarn-RESOURCEMANAGER-BASE",
+        "zookeeper-SERVER-BASE"
+      ]
+    },
+    {
+      "refName": "HostTemplate-NameNode2",
+      "cardinality": 1,
+      "roleConfigGroupsRefNames": [
+        "hdfs-BALANCER-BASE",
+        "hive-GATEWAY-BASE",
+        "hive-HIVEMETASTORE-BASE",
+        "hive-HIVESERVER2-BASE",
+        "hue-HUE_SERVER-BASE",
+        "yarn-JOBHISTORY-BASE",
+        "zookeeper-SERVER-BASE"
+      ]
+    },
+    {
+      "refName": "HostTemplate-DataNodes",
+      "cardinality": 2,
+      "roleConfigGroupsRefNames": [
+        "hdfs-DATANODE-BASE",
+        "hive-GATEWAY-BASE",
+        "impala-IMPALAD-BASE",
+        "yarn-NODEMANAGER-BASE"
+      ]
+    }
+  ],
+  "instantiator": {
+    "clusterName": "Cluster1",
+    "hosts": [
+      {
+        "hostTemplateRefName": "HostTemplate-CM",
+        "hostName": $host_cm
+      },
+      {
+        "hostTemplateRefName": "HostTemplate-NameNode1",
+        "hostName": $host_name_node1
+      },
+      {
+        "hostTemplateRefName": "HostTemplate-NameNode2",
+        "hostName": $host_name_node2
+      },
+      {
+        "hostTemplateRefName": "HostTemplate-DataNodes",
+        "hostNameRange": $host_data_nodes
+      }
+    ],
+    "variables": [
+      {
+        "name": "var_db_host",
+        "value": $host_database
+      },
+      {
+        "name": "var_hive_db_password",
+        "value": $hive_db_password
+      },
+      {
+        "name": "var_hue_db_password",
+        "value": $hue_db_password
+      },
+      {
+        "name": "var_oozie_db_password",
+        "value": $oozie_db_password
+      }
+    ]
+  }
+}

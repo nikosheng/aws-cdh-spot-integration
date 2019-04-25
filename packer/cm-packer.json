@@ -1,0 +1,38 @@
+{
+    "variables": {
+      "aws_access_key": "",
+      "aws_secret_key": "",
+      "aws_region": "cn-northwest-1",
+      "ami_name": "cdh-cm-{{timestamp}}",
+      "source_ami_id": "ami-01fd0f9c09a12448e",
+      "instance_type": "m4.large"
+    },
+    "builders": [
+      {
+        "type": "amazon-ebs",
+        "region": "{{user `aws_region`}}",
+        "source_ami": "{{user `source_ami_id`}}",
+        "access_key": "{{user `aws_access_key`}}",
+        "secret_key": "{{user `aws_secret_key`}}",
+        "instance_type": "{{user `instance_type`}}",
+        "launch_block_device_mappings": [
+            {
+              "device_name": "/dev/sda1",
+              "volume_type": "gp2",
+              "volume_size": 20,
+              "delete_on_termination": true
+            }
+          ],
+        "ssh_username": "centos",
+        "ami_name": "{{user `ami_name`}}",
+        "ami_description": "Cloudera cluster manager AMI with CentOS image"
+      }
+    ],
+    "provisioners": [
+      {
+        "type": "shell",
+        "execute_command": "sudo '{{ .Path }}'",
+        "script": "cm-setup.sh"
+      }
+    ]
+  }

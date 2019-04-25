@@ -1,0 +1,325 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS CloudFormation to create RDS and context for CDH cluster'
+Parameters:
+  DBName:
+    Default: cdhdb
+    Description: The database name
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBUser:
+    Default: cmadmin
+    Description: The database admin account username
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric characters.
+  DBPassword:
+    NoEcho: 'true'
+    Description: The database admin account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  DBInstanceType:
+    Description: DB instance type.
+    Type: String
+    Default: db.r4.large
+    AllowedValues:
+      - db.t2.small
+      - db.t2.medium
+      - db.r4.large
+      - db.r4.xlarge
+      - db.r4.2xlarge
+      - db.r4.4xlarge
+      - db.r4.8xlarge
+      - db.r4.16xlarge
+  DBVpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for DB.
+  DBSubnets:
+    Description: The subnets where database can be created.
+    Type: List<AWS::EC2::Subnet::Id>
+  SCMPassword:
+    NoEcho: 'true'
+    Description: The database scm account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  HivePassword:
+    NoEcho: 'true'
+    Description: The database Metastore account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  HuePassword:
+    NoEcho: 'true'
+    Description: The database Hue account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  OoziePassword:
+    NoEcho: 'true'
+    Description: The database Oozie account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+  AMonPassword:
+    NoEcho: 'true'
+    Description: The database AMon account password
+    Type: String
+    MinLength: '4'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: must contain only alphanumeric characters.
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "RDS Parameters"
+        Parameters:
+          - DBName
+          - DBUser
+          - DBInstanceType
+          - DBVpcId
+          - DBSubnets
+      - Label:
+          default: "CDH database passowrds"
+        Parameters:
+          - DBPassword
+          - SCMPassword
+          - HivePassword
+          - HuePassword
+          - OoziePassword
+          - AMonPassword
+Resources:
+### Aurora MySQL 5.6, DB cluster and instance used for CDH ###
+  CMDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to DB in VPC
+      VpcId: !Ref DBVpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 3306
+        ToPort: 3306
+        CidrIp: '0.0.0.0/0'
+  CMDBSubnetGroup: 
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: "Subnet Group for Clouder Cluster Manager Database"
+      SubnetIds: !Ref DBSubnets
+  CMDBCluster:
+    Type: 'AWS::RDS::DBCluster'
+    Properties:
+      DatabaseName: !Ref 'DBName'
+      Engine: 'aurora'
+      DBSubnetGroupName: !Ref CMDBSubnetGroup
+      MasterUsername: !Ref 'DBUser'
+      MasterUserPassword: !Ref 'DBPassword'
+      VpcSecurityGroupIds: [!Ref CMDBSecurityGroup]
+  CMDBInstance:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      Engine: 'aurora'
+      DBClusterIdentifier: !Ref CMDBCluster
+      DBSubnetGroupName: !Ref CMDBSubnetGroup
+      DBInstanceClass: !Ref DBInstanceType
+### Instance profile and security group for CM ###
+  CMExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ec2.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies: 
+        - PolicyName: "CDHCMPolicy"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action: ["ec2:*", "s3:*"]
+                Resource: "*"
+  CMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles: [!Ref CMExecutionRole]
+  CMSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref DBVpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: '0.0.0.0/0'
+  CMFromCDHNodeInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      SourceSecurityGroupId: !GetAtt CDHNodeSecurityGroup.GroupId
+      GroupId: !GetAtt CMSecurityGroup.GroupId
+  CMFromSelfInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      SourceSecurityGroupId: !GetAtt CMSecurityGroup.GroupId
+      GroupId: !GetAtt CMSecurityGroup.GroupId
+### Instance profile and security group for CDH nodes ###
+  CDHNodeExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: ec2.amazonaws.com
+          Action: sts:AssumeRole
+      Path: "/"
+      Policies: 
+        - PolicyName: "CDHNodePolicy"
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement: 
+              - Effect: "Allow"
+                Action: ["s3:*"]
+                Resource: "*"
+  CDHNodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles: [!Ref CDHNodeExecutionRole]
+  CDHNodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref DBVpcId
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: '0.0.0.0/0'
+  CDHNodeFromCMInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      SourceSecurityGroupId: !GetAtt CMSecurityGroup.GroupId
+      GroupId: !GetAtt CDHNodeSecurityGroup.GroupId
+  CDHNodeFromSelfInboundRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: -1
+      SourceSecurityGroupId: !GetAtt CDHNodeSecurityGroup.GroupId
+      GroupId: !GetAtt CDHNodeSecurityGroup.GroupId
+### Record all parameters to SSM parameter store ###
+  DBEndpointParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/endpoint'
+      Type: String
+      Value: !GetAtt CMDBCluster.Endpoint.Address
+      Description: 'SSM Parameter for CDH DB endpoint.'
+  DBAdminUserParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/admin-user'
+      Type: String
+      Value: !Ref 'DBUser'
+      Description: 'SSM Parameter for CDH DB admin user.'
+  DBAdminPwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/admin-pwd'
+      Type: String
+      Value: !Ref 'DBPassword'
+      Description: 'SSM Parameter for CDH DB admin password.'
+  DBSCMPwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/scm-pwd'
+      Type: String
+      Value: !Ref 'SCMPassword'
+      Description: 'SSM Parameter for CDH DB scm password.'
+  DBAmonPwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/amon-pwd'
+      Type: String
+      Value: !Ref 'AMonPassword'
+      Description: 'SSM Parameter for CDH DB activity monitor(amon) password.'
+  DBHivePwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/hive-pwd'
+      Type: String
+      Value: !Ref 'HivePassword'
+      Description: 'SSM Parameter for CDH DB hive(metastore) password.'
+  DBHuePwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/hue-pwd'
+      Type: String
+      Value: !Ref 'HuePassword'
+      Description: 'SSM Parameter for CDH DB hue password.'
+  DBOoziePwdParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/db/oozie-pwd'
+      Type: String
+      Value: !Ref 'OoziePassword'
+      Description: 'SSM Parameter for CDH DB oozie password.'
+  CMInstanceProfileParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/cm/inst-prof'
+      Type: String
+      Value: !Ref 'CMInstanceProfile'
+      Description: 'SSM Parameter for CM instance profile.'
+  CMSecurityGroupParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/cm/sg'
+      Type: String
+      Value: !Ref 'CMSecurityGroup'
+      Description: 'SSM Parameter for CM security group.'
+  CDHNodeInstanceProfileParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/node/inst-prof'
+      Type: String
+      Value: !Ref 'CDHNodeInstanceProfile'
+      Description: 'SSM Parameter for CDH node instance profile.'
+  CDHNodeSecurityGroupParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: '/cdh/node/sg'
+      Type: String
+      Value: !Ref 'CDHNodeSecurityGroup'
+      Description: 'SSM Parameter for CDH node security group.'
+Outputs:
+  DBEndpoint:
+    Description: DB cluster endpoint
+    Value: !GetAtt CMDBCluster.Endpoint.Address
+  DBPort:
+    Description: DB cluster port
+    Value: !GetAtt CMDBCluster.Endpoint.Port
