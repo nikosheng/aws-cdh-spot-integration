@@ -1,4 +1,6 @@
 # aws-cdh-spot-integration
+[![LICENSE](https://img.shields.io/badge/license-Anti%20996-blue.svg)](https://github.com/996icu/996.ICU/blob/master/LICENSE)
+
 Building up a CDH cluster(5.11.2) in AWS by using EC2 Fleet.
 
 ***The project is building in North Virginia Region(us-east-1), if you want to deploy to other regions, please modify the packer scripts and cloudformation template as needed.***
