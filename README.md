@@ -155,7 +155,7 @@ AutoScalingGroup:
       VPCZoneIdentifier: !Ref FleetSubnets
 ```
 
-7. **Wrap Up**
+7. **Wrap Up**. 
 Once the stack is created completely, the Cloudera Cluster is able to run in your EC2 Fleet.
 
 You could adjust the autoscaling group to setup the min/max size of the fleet or the percentage of the on-damand instances.
